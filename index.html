@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>家庭旅行足迹地图</title>
+
+  <!-- PWA：加到手机主屏像 App 一样打开 -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#0d9488" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="旅行足迹" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+
+  <!-- Leaflet 地图库的样式(从 CDN 引入) -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
+  <!-- 地名搜索插件的样式 -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.css"
+  />
+  <!-- 标记聚合插件的样式 -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <!-- 我们自己的样式 -->
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- 顶部栏 -->
+  <header class="topbar">
+    <div class="brand">🧭 家庭旅行足迹地图</div>
+    <div class="actions">
+      <span class="hint" id="auth-status">未登录</span>
+      <button id="btn-stats" class="btn ghost" title="查看足迹统计">📊 统计</button>
+      <button id="btn-timeline" class="btn ghost" title="按时间回看足迹">🕒 时间轴</button>
+      <button id="btn-share" class="btn ghost" title="导出一个只读的足迹网页，分享给亲友">🔗 分享</button>
+      <button id="btn-export" class="btn ghost" title="把所有打卡点导出为文件备份">导出备份</button>
+      <button id="btn-import" class="btn ghost" title="从备份文件导入打卡点">导入</button>
+      <button id="btn-auth" class="btn primary" disabled>用 Google 登录</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- 左侧打卡列表 -->
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <h2>我的打卡点</h2>
+        <span class="count" id="count">共 0 个</span>
+      </div>
+      <p class="tip">👉 在右侧地图上<strong>点一下</strong>，就能添加一个打卡点。</p>
+      <div class="filter-bar" id="filter-bar"><!-- 筛选条由 JS 生成 --></div>
+      <ul class="place-list" id="place-list"><!-- 列表由 JS 生成 --></ul>
+    </aside>
+
+    <!-- 地图 -->
+    <main class="map-wrap">
+      <div id="map"></div>
+    </main>
+  </div>
+
+  <!-- 添加 / 编辑打卡点的弹窗 -->
+  <div class="modal-overlay" id="modal" hidden>
+    <div class="modal">
+      <h3 id="modal-title">新增打卡点</h3>
+      <form id="place-form">
+        <label>
+          地点名称 *
+          <input type="text" id="f-title" placeholder="例如：东京塔" required maxlength="60" />
+        </label>
+        <label>
+          到访日期
+          <input type="date" id="f-date" />
+        </label>
+        <label>
+          分类
+          <select id="f-cat"></select>
+        </label>
+        <label>
+          备注 / 回忆
+          <textarea id="f-notes" rows="3" placeholder="和谁去的、发生了什么、想记住的事…" maxlength="500"></textarea>
+        </label>
+        <label>
+          照片（可选，可多张）
+          <input type="file" id="f-photo" accept="image/*" multiple />
+        </label>
+        <div class="photo-grid" id="f-photo-grid"></div>
+        <p class="coords" id="f-coords"></p>
+        <button type="button" class="btn" id="btn-reposition" style="display:none;background:#f1f5f9;color:#334155;margin-bottom:12px">📍 调整位置</button>
+        <div class="modal-actions">
+          <button type="button" class="btn ghost" id="btn-cancel">取消</button>
+          <button type="submit" class="btn primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 用于“导入”的隐藏文件选择框 -->
+  <input type="file" id="file-input" accept="application/json" hidden />
+
+  <!-- 看大图的全屏层（支持左右切换） -->
+  <div class="lightbox" id="lightbox" hidden>
+    <button class="lb-btn lb-close" id="lb-close" aria-label="关闭">×</button>
+    <button class="lb-btn lb-prev" id="lb-prev" aria-label="上一张">‹</button>
+    <img id="lightbox-img" alt="原图" />
+    <button class="lb-btn lb-next" id="lb-next" aria-label="下一张">›</button>
+  </div>
+
+  <!-- 调整位置时的浮动操作条 -->
+  <div class="reposition-bar" id="reposition-bar">
+    <span>拖动图钉到新位置，或点击地图选点</span>
+    <button class="btn ghost" id="repos-cancel">取消</button>
+    <button class="btn primary" id="repos-ok">确定</button>
+  </div>
+
+  <!-- 时间轴弹窗 -->
+  <div class="modal-overlay" id="timeline-modal">
+    <div class="modal stats">
+      <h3>🕒 时间轴</h3>
+      <div id="timeline-body"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="btn-timeline-close">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 统计弹窗 -->
+  <div class="modal-overlay" id="stats-modal">
+    <div class="modal stats">
+      <h3>📊 足迹统计</h3>
+      <div id="stats-body"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="btn-stats-close">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaflet 地图库 -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- 地名搜索插件 -->
+  <script src="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.js"></script>
+  <!-- 标记聚合插件 -->
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <!-- Google 登录组件 -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <!-- 你的 Google Client ID（必须在 app.js 之前加载） -->
+  <script src="config.js"></script>
+  <!-- 我们自己的逻辑 -->
+  <script src="app.js"></script>
+</body>
+</html>
