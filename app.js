@@ -231,10 +231,11 @@ async function loadFromDrive() {
     try {
       await readDataFile(connectedFile);
     } catch (e) {
+      console.error("读取共享文件失败：", e);
       localStorage.removeItem(FILE_KEY);
       dataFileId = null; places = [];
       renderAll(); updateAuthUI();
-      alert("无法访问已连接的家庭地图文件（可能换了账号或权限有变）。请点『👪 家庭地图』重新连接。");
+      alert("无法访问已连接的家庭地图文件。\n错误详情：" + e.message + "\n（请把这行错误告诉开发者）");
       return;
     }
     renderAll(); updateAuthUI();
