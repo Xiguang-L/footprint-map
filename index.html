@@ -3,6 +3,20 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- 内容安全策略：只允许从这些可信来源加载资源（Google 登录/Picker、地图瓦片、本站） -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://apis.google.com https://accounts.google.com https://*.gstatic.com https://*.googleapis.com;
+    style-src 'self' 'unsafe-inline' https://unpkg.com;
+    img-src 'self' data: blob: https://*.googleusercontent.com https://*.google.com https://*.gstatic.com https://*.tile.openstreetmap.org https://*.tile.opentopomap.org https://server.arcgisonline.com;
+    connect-src 'self' https://*.googleapis.com https://accounts.google.com https://nominatim.openstreetmap.org https://*.google.com;
+    frame-src https://accounts.google.com https://content.googleapis.com https://docs.google.com https://*.google.com;
+    font-src 'self' data:;
+    base-uri 'self';
+    object-src 'none';
+  " />
+
   <title>家庭旅行足迹地图</title>
 
   <!-- PWA：加到手机主屏像 App 一样打开 -->
@@ -14,19 +28,17 @@
   <link rel="apple-touch-icon" href="icon-192.png" />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
 
-  <!-- Leaflet 地图库的样式(从 CDN 引入) -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  />
+  <!-- Leaflet 地图库的样式(从 CDN 引入，带完整性校验 SRI) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous" />
   <!-- 地名搜索插件的样式 -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.css"
-  />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.css"
+    integrity="sha384-gOibXC9S5JpMrpEP0ee6wCSVHjFSEuOzLLzTUmg58qM+mJ1rI8h/aY3lS9YUmo55" crossorigin="anonymous" />
   <!-- 标记聚合插件的样式 -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+    integrity="sha384-pmjIAcz2bAn0xukfxADbZIb3t8oRT9Sv0rvO+BR5Csr6Dhqq+nZs59P0pPKQJkEV" crossorigin="anonymous" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+    integrity="sha384-wgw+aLYNQ7dlhK47ZPK7FRACiq7ROZwgFNg0m04avm4CaXS+Z9Y7nMu8yNjBKYC+" crossorigin="anonymous" />
   <!-- 我们自己的样式 -->
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -140,12 +152,15 @@
     </div>
   </div>
 
-  <!-- Leaflet 地图库 -->
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Leaflet 地图库（带完整性校验 SRI） -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
   <!-- 地名搜索插件 -->
-  <script src="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.js"></script>
+  <script src="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.js"
+    integrity="sha384-rGCFEOuLo3qUtZTJs5enHPutiikUQ6AJroPg2rQqOhmXBPmZdvhwK2aCmkhe9gwo" crossorigin="anonymous"></script>
   <!-- 标记聚合插件 -->
-  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"
+    integrity="sha384-eXVCORTRlv4FUUgS/xmOyr66XBVraen8ATNLMESp92FKXLAMiKkerixTiBvXriZr" crossorigin="anonymous"></script>
   <!-- Google 登录组件 -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <!-- Google API（给 Picker“连接家庭地图”用） -->
