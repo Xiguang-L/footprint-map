@@ -140,6 +140,20 @@ document.getElementById("btn-auth").addEventListener("click", () => {
   else doSignIn();
 });
 
+document.getElementById("btn-connect").addEventListener("click", () => {
+  if (!signedIn) { alert("请先登录，再连接家庭地图。"); return; }
+  if (localStorage.getItem(FOLDER_KEY)) {
+    if (confirm("当前已连接一张共享地图。\n点【确定】重新选择共享文件夹；点【取消】断开、回到你自己的地图。")) {
+      connectToFamilyFolder();
+    } else {
+      disconnectFamilyFolder();
+      alert("已断开，回到你自己的地图。");
+    }
+  } else {
+    connectToFamilyFolder();
+  }
+});
+
 // ===================== 二、Google Drive 存取 =====================
 const APP_FOLDER_NAME = "家庭旅行足迹地图";
 const DATA_FILE_NAME = "footprints.json";
@@ -166,23 +180,36 @@ async function driveFetch(url, options = {}) {
   return resp;
 }
 
-async function ensureFolder() {
-  if (folderId) return;
+// 已“连接”的家庭地图文件夹 id 存在本地（一次连接，长期生效）
+const FOLDER_KEY = "family-folder-id";
+
+// 确定当前要读写的文件夹：
+//  1) 已连接的家庭文件夹(本地存的) 优先；
+//  2) 否则找自己 Drive 里的同名文件夹；
+//  3) createIfMissing 时才新建自己的文件夹（成员未连接前不会乱建空文件夹）。
+async function resolveFolder(createIfMissing) {
+  if (folderId) return folderId;
+  const stored = localStorage.getItem(FOLDER_KEY);
+  if (stored) { folderId = stored; return folderId; }
   const q = `name='${APP_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
   const res = await driveFetch(
     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&spaces=drive&fields=files(id,name)`
   );
   const data = await res.json();
   if (data.files && data.files.length) {
-    folderId = data.files[0].id;
-    return;
+    folderId = data.files[0].id; // 自己的文件夹：不写入 FOLDER_KEY（FOLDER_KEY 仅代表“已连接共享文件夹”）
+    return folderId;
   }
-  const res2 = await driveFetch("https://www.googleapis.com/drive/v3/files", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: APP_FOLDER_NAME, mimeType: "application/vnd.google-apps.folder" }),
-  });
-  folderId = (await res2.json()).id;
+  if (createIfMissing) {
+    const res2 = await driveFetch("https://www.googleapis.com/drive/v3/files", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: APP_FOLDER_NAME, mimeType: "application/vnd.google-apps.folder" }),
+    });
+    folderId = (await res2.json()).id;
+    return folderId;
+  }
+  return null;
 }
 
 async function findDataFile() {
@@ -196,21 +223,36 @@ async function findDataFile() {
 
 async function loadFromDrive() {
   setStatus("正在从 Google Drive 载入…");
-  await ensureFolder();
-  await findDataFile();
-  if (dataFileId) {
-    const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${dataFileId}?alt=media`);
-    const data = await res.json().catch(() => []);
-    places = Array.isArray(data) ? data : [];
-  } else {
-    places = [];
+  const fid = await resolveFolder(false);
+  if (!fid) { places = []; renderAll(); updateAuthUI(); return; } // 还没有自己的、也没连接家庭地图
+  folderId = fid;
+  try {
+    await findDataFile();
+    if (dataFileId) {
+      const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${dataFileId}?alt=media`);
+      const data = await res.json().catch(() => []);
+      places = Array.isArray(data) ? data : [];
+    } else {
+      places = [];
+    }
+  } catch (e) {
+    // 多半是“已连接的家庭文件夹”这个账号访问不了（换了账号/权限变了）
+    const stored = localStorage.getItem(FOLDER_KEY);
+    if (stored && stored === folderId) {
+      localStorage.removeItem(FOLDER_KEY);
+      folderId = null; dataFileId = null; places = [];
+      renderAll(); updateAuthUI();
+      alert("无法访问之前连接的家庭地图（可能换了账号或权限有变）。请点『👪 家庭地图』重新连接。");
+      return;
+    }
+    throw e;
   }
   renderAll();
   updateAuthUI();
 }
 
 async function saveToDrive() {
-  await ensureFolder();
+  await resolveFolder(true);
   const body = JSON.stringify(places);
   if (!dataFileId) {
     const res = await driveFetch("https://www.googleapis.com/drive/v3/files", {
@@ -229,7 +271,7 @@ async function saveToDrive() {
 
 // 上传一张照片（Blob）到 Drive，返回 fileId
 async function uploadPhotoBlob(blob, name) {
-  await ensureFolder();
+  await resolveFolder(true);
   const res = await driveFetch("https://www.googleapis.com/drive/v3/files", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -266,6 +308,64 @@ async function fetchFullPhoto(fileId) {
 
 function makeId() {
   return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+}
+
+// —— 连接“家庭地图”：用 Google Picker 选中主人共享的那个文件夹 ——
+let pickerLoaded = false;
+function loadPicker(cb) {
+  if (pickerLoaded && window.google && google.picker) { cb(); return; }
+  if (!window.gapi) { alert("Picker 组件还在加载，请过一两秒再试。"); return; }
+  gapi.load("picker", () => { pickerLoaded = true; cb(); });
+}
+
+function connectToFamilyFolder() {
+  if (!signedIn || !accessToken) { alert("请先登录，再连接家庭地图。"); return; }
+  if (typeof GOOGLE_API_KEY === "undefined" || !GOOGLE_API_KEY || GOOGLE_API_KEY.indexOf("AIza") !== 0) {
+    alert("还没配置 Picker 的 API 密钥（config.js 里的 GOOGLE_API_KEY）。");
+    return;
+  }
+  loadPicker(() => {
+    // 两个视图：我的文件夹 + 共享给我的文件夹；都只让选文件夹
+    const myFolders = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+      .setSelectFolderEnabled(true).setMode(google.picker.DocsViewMode.LIST);
+    const sharedFolders = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+      .setSelectFolderEnabled(true).setOwnedByMe(false).setMode(google.picker.DocsViewMode.LIST);
+    const picker = new google.picker.PickerBuilder()
+      .setOAuthToken(accessToken)
+      .setDeveloperKey(GOOGLE_API_KEY)
+      .setTitle("选择家庭地图文件夹（在“与我共享”里找）")
+      .addView(myFolders)
+      .addView(sharedFolders)
+      .setCallback(pickerCallback)
+      .build();
+    picker.setVisible(true);
+  });
+}
+
+function pickerCallback(data) {
+  if (!data || data.action !== google.picker.Action.PICKED) return;
+  const doc = data.docs && data.docs[0];
+  if (!doc) return;
+  localStorage.setItem(FOLDER_KEY, doc.id);
+  folderId = doc.id;
+  dataFileId = null;
+  setStatus("正在载入家庭地图…");
+  loadFromDrive()
+    .then(() => alert("已连接家庭地图：" + (doc.name || doc.id)))
+    .catch((e) => {
+      console.error(e);
+      alert("连接后载入失败：" + e.message + "\n请确认主人已把该文件夹共享给你（编辑者）。");
+    });
+}
+
+// 断开连接：回到“你自己的地图”
+function disconnectFamilyFolder() {
+  localStorage.removeItem(FOLDER_KEY);
+  folderId = null;
+  dataFileId = null;
+  if (signedIn) {
+    loadFromDrive().catch((e) => console.warn(e));
+  }
 }
 
 // ===================== 三、应用状态 =====================

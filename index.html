@@ -41,6 +41,7 @@
       <button id="btn-share" class="btn ghost" title="导出一个只读的足迹网页，分享给亲友">🔗 分享</button>
       <button id="btn-export" class="btn ghost" title="把所有打卡点导出为文件备份">导出备份</button>
       <button id="btn-import" class="btn ghost" title="从备份文件导入打卡点">导入</button>
+      <button id="btn-connect" class="btn ghost" title="连接到家人共享的那张地图">👪 家庭地图</button>
       <button id="btn-auth" class="btn primary" disabled>用 Google 登录</button>
     </div>
   </header>
@@ -147,6 +148,8 @@
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
   <!-- Google 登录组件 -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <!-- Google API（给 Picker“连接家庭地图”用） -->
+  <script src="https://apis.google.com/js/api.js" async defer></script>
   <!-- 你的 Google Client ID（必须在 app.js 之前加载） -->
   <script src="config.js"></script>
   <!-- 我们自己的逻辑 -->
