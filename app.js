@@ -325,16 +325,15 @@ function connectToFamilyFolder() {
     return;
   }
   loadPicker(() => {
-    // 两个视图：我的文件夹 + 共享给我的文件夹；都只让选文件夹
-    const myFolders = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
-      .setSelectFolderEnabled(true).setMode(google.picker.DocsViewMode.LIST);
+    // 只显示“与我共享”的文件夹，避免误选到自己同名的文件夹
     const sharedFolders = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
-      .setSelectFolderEnabled(true).setOwnedByMe(false).setMode(google.picker.DocsViewMode.LIST);
+      .setSelectFolderEnabled(true)
+      .setOwnedByMe(false)
+      .setMode(google.picker.DocsViewMode.LIST);
     const picker = new google.picker.PickerBuilder()
       .setOAuthToken(accessToken)
       .setDeveloperKey(GOOGLE_API_KEY)
-      .setTitle("选择家庭地图文件夹（在“与我共享”里找）")
-      .addView(myFolders)
+      .setTitle("选择家人共享给你的「家庭旅行足迹地图」文件夹")
       .addView(sharedFolders)
       .setCallback(pickerCallback)
       .build();
@@ -351,7 +350,7 @@ function pickerCallback(data) {
   dataFileId = null;
   setStatus("正在载入家庭地图…");
   loadFromDrive()
-    .then(() => alert("已连接家庭地图：" + (doc.name || doc.id)))
+    .then(() => alert("已连接家庭地图：" + (doc.name || doc.id) + "\n载入了 " + places.length + " 个打卡点。"))
     .catch((e) => {
       console.error(e);
       alert("连接后载入失败：" + e.message + "\n请确认主人已把该文件夹共享给你（编辑者）。");
