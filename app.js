@@ -142,15 +142,15 @@ document.getElementById("btn-auth").addEventListener("click", () => {
 
 document.getElementById("btn-connect").addEventListener("click", () => {
   if (!signedIn) { alert("请先登录，再连接家庭地图。"); return; }
-  if (localStorage.getItem(FOLDER_KEY)) {
-    if (confirm("当前已连接一张共享地图。\n点【确定】重新选择共享文件夹；点【取消】断开、回到你自己的地图。")) {
-      connectToFamilyFolder();
+  if (localStorage.getItem(FILE_KEY)) {
+    if (confirm("当前已连接一张共享地图。\n点【确定】重新选择共享文件；点【取消】断开、回到你自己的地图。")) {
+      connectToFamilyMap();
     } else {
-      disconnectFamilyFolder();
+      disconnectFamilyMap();
       alert("已断开，回到你自己的地图。");
     }
   } else {
-    connectToFamilyFolder();
+    connectToFamilyMap();
   }
 });
 
@@ -180,26 +180,20 @@ async function driveFetch(url, options = {}) {
   return resp;
 }
 
-// 已“连接”的家庭地图文件夹 id 存在本地（一次连接，长期生效）
-const FOLDER_KEY = "family-folder-id";
+// 路1：整张地图（含内嵌照片）就是“一个 JSON 文件”。
+// 家人直接“选这一个文件”就能共读共写（drive.file 允许读写你选中的单个文件）。
+// 已连接的那个文件 id 存在本地（一次连接，长期生效）。
+const FILE_KEY = "family-file-id";
 
-// 确定当前要读写的文件夹：
-//  1) 已连接的家庭文件夹(本地存的) 优先；
-//  2) 否则找自己 Drive 里的同名文件夹；
-//  3) createIfMissing 时才新建自己的文件夹（成员未连接前不会乱建空文件夹）。
+// 自己地图的文件夹（仅“自己模式”用；找不到时按需新建）
 async function resolveFolder(createIfMissing) {
   if (folderId) return folderId;
-  const stored = localStorage.getItem(FOLDER_KEY);
-  if (stored) { folderId = stored; return folderId; }
   const q = `name='${APP_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
   const res = await driveFetch(
     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&spaces=drive&fields=files(id,name)`
   );
   const data = await res.json();
-  if (data.files && data.files.length) {
-    folderId = data.files[0].id; // 自己的文件夹：不写入 FOLDER_KEY（FOLDER_KEY 仅代表“已连接共享文件夹”）
-    return folderId;
-  }
+  if (data.files && data.files.length) { folderId = data.files[0].id; return folderId; }
   if (createIfMissing) {
     const res2 = await driveFetch("https://www.googleapis.com/drive/v3/files", {
       method: "POST",
@@ -221,69 +215,63 @@ async function findDataFile() {
   dataFileId = data.files && data.files.length ? data.files[0].id : null;
 }
 
+async function readDataFile(fileId) {
+  const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`);
+  const data = await res.json().catch(() => []);
+  places = Array.isArray(data) ? data : [];
+}
+
 async function loadFromDrive() {
   setStatus("正在从 Google Drive 载入…");
-  const fid = await resolveFolder(false);
-  if (!fid) { places = []; renderAll(); updateAuthUI(); return; } // 还没有自己的、也没连接家庭地图
-  folderId = fid;
-  try {
-    await findDataFile();
-    if (dataFileId) {
-      const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${dataFileId}?alt=media`);
-      const data = await res.json().catch(() => []);
-      places = Array.isArray(data) ? data : [];
-    } else {
-      places = [];
-    }
-  } catch (e) {
-    // 多半是“已连接的家庭文件夹”这个账号访问不了（换了账号/权限变了）
-    const stored = localStorage.getItem(FOLDER_KEY);
-    if (stored && stored === folderId) {
-      localStorage.removeItem(FOLDER_KEY);
-      folderId = null; dataFileId = null; places = [];
+  const connectedFile = localStorage.getItem(FILE_KEY);
+  if (connectedFile) {
+    // 共享模式：直接读写家人共享的那个文件
+    dataFileId = connectedFile;
+    folderId = null;
+    try {
+      await readDataFile(connectedFile);
+    } catch (e) {
+      localStorage.removeItem(FILE_KEY);
+      dataFileId = null; places = [];
       renderAll(); updateAuthUI();
-      alert("无法访问之前连接的家庭地图（可能换了账号或权限有变）。请点『👪 家庭地图』重新连接。");
+      alert("无法访问已连接的家庭地图文件（可能换了账号或权限有变）。请点『👪 家庭地图』重新连接。");
       return;
     }
-    throw e;
+    renderAll(); updateAuthUI();
+    return;
   }
+  // 自己模式：找自己的文件夹 + footprints.json
+  const fid = await resolveFolder(false);
+  if (!fid) { places = []; renderAll(); updateAuthUI(); return; }
+  folderId = fid;
+  await findDataFile();
+  if (dataFileId) await readDataFile(dataFileId);
+  else places = [];
   renderAll();
   updateAuthUI();
 }
 
 async function saveToDrive() {
-  await resolveFolder(true);
   const body = JSON.stringify(places);
-  if (!dataFileId) {
-    const res = await driveFetch("https://www.googleapis.com/drive/v3/files", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: DATA_FILE_NAME, parents: [folderId], mimeType: "application/json" }),
-    });
-    dataFileId = (await res.json()).id;
+  const connectedFile = localStorage.getItem(FILE_KEY);
+  if (connectedFile) {
+    dataFileId = connectedFile; // 共享模式：写入家人共享的那个文件
+  } else {
+    await resolveFolder(true);
+    if (!dataFileId) {
+      const res = await driveFetch("https://www.googleapis.com/drive/v3/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: DATA_FILE_NAME, parents: [folderId], mimeType: "application/json" }),
+      });
+      dataFileId = (await res.json()).id;
+    }
   }
   await driveFetch(`https://www.googleapis.com/upload/drive/v3/files/${dataFileId}?uploadType=media`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body,
   });
-}
-
-// 上传一张照片（Blob）到 Drive，返回 fileId
-async function uploadPhotoBlob(blob, name) {
-  await resolveFolder(true);
-  const res = await driveFetch("https://www.googleapis.com/drive/v3/files", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: name || "photo.jpg", parents: [folderId], mimeType: "image/jpeg" }),
-  });
-  const id = (await res.json()).id;
-  await driveFetch(`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media`, {
-    method: "PATCH",
-    headers: { "Content-Type": "image/jpeg" },
-    body: blob,
-  });
-  return id;
 }
 
 // 删除一个 Drive 文件（best-effort，失败忽略）
@@ -310,7 +298,7 @@ function makeId() {
   return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
 }
 
-// —— 连接“家庭地图”：用 Google Picker 选中主人共享的那个文件夹 ——
+// —— 连接“家庭地图”：用 Google Picker 选中主人共享的那个数据文件（footprints.json）——
 let pickerLoaded = false;
 function loadPicker(cb) {
   if (pickerLoaded && window.google && google.picker) { cb(); return; }
@@ -318,23 +306,25 @@ function loadPicker(cb) {
   gapi.load("picker", () => { pickerLoaded = true; cb(); });
 }
 
-function connectToFamilyFolder() {
+function connectToFamilyMap() {
   if (!signedIn || !accessToken) { alert("请先登录，再连接家庭地图。"); return; }
   if (typeof GOOGLE_API_KEY === "undefined" || !GOOGLE_API_KEY || GOOGLE_API_KEY.indexOf("AIza") !== 0) {
     alert("还没配置 Picker 的 API 密钥（config.js 里的 GOOGLE_API_KEY）。");
     return;
   }
   loadPicker(() => {
-    // 只显示“与我共享”的文件夹，避免误选到自己同名的文件夹
-    const sharedFolders = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
-      .setSelectFolderEnabled(true)
+    // 显示“与我共享”的内容：进入共享的文件夹，选里面的 footprints.json（只显示 JSON 文件）
+    const view = new google.picker.DocsView(google.picker.ViewId.DOCS)
       .setOwnedByMe(false)
+      .setIncludeFolders(true)
+      .setSelectFolderEnabled(false)
+      .setMimeTypes("application/json")
       .setMode(google.picker.DocsViewMode.LIST);
     const picker = new google.picker.PickerBuilder()
       .setOAuthToken(accessToken)
       .setDeveloperKey(GOOGLE_API_KEY)
-      .setTitle("选择家人共享给你的「家庭旅行足迹地图」文件夹")
-      .addView(sharedFolders)
+      .setTitle("进入共享的「家庭旅行足迹地图」文件夹，选中里面的 footprints.json")
+      .addView(view)
       .setCallback(pickerCallback)
       .build();
     picker.setVisible(true);
@@ -345,26 +335,24 @@ function pickerCallback(data) {
   if (!data || data.action !== google.picker.Action.PICKED) return;
   const doc = data.docs && data.docs[0];
   if (!doc) return;
-  localStorage.setItem(FOLDER_KEY, doc.id);
-  folderId = doc.id;
-  dataFileId = null;
+  localStorage.setItem(FILE_KEY, doc.id);
+  dataFileId = doc.id;
+  folderId = null;
   setStatus("正在载入家庭地图…");
   loadFromDrive()
-    .then(() => alert("已连接家庭地图：" + (doc.name || doc.id) + "\n载入了 " + places.length + " 个打卡点。"))
+    .then(() => alert("已连接家庭地图，载入了 " + places.length + " 个打卡点。"))
     .catch((e) => {
       console.error(e);
-      alert("连接后载入失败：" + e.message + "\n请确认主人已把该文件夹共享给你（编辑者）。");
+      alert("连接后载入失败：" + e.message + "\n请确认主人已把该地图共享给你（编辑者）。");
     });
 }
 
 // 断开连接：回到“你自己的地图”
-function disconnectFamilyFolder() {
-  localStorage.removeItem(FOLDER_KEY);
+function disconnectFamilyMap() {
+  localStorage.removeItem(FILE_KEY);
   folderId = null;
   dataFileId = null;
-  if (signedIn) {
-    loadFromDrive().catch((e) => console.warn(e));
-  }
+  if (signedIn) loadFromDrive().catch((e) => console.warn(e));
 }
 
 // ===================== 三、应用状态 =====================
@@ -507,12 +495,9 @@ function processPhoto(file) {
       const img = new Image();
       img.onerror = () => reject(new Error("无法解码（可能是 HEIC 等浏览器不支持的格式）"));
       img.onload = () => {
-        const thumb = drawScaled(img, 240).toDataURL("image/jpeg", 0.6);
-        drawScaled(img, 2560).toBlob(
-          (blob) => (blob ? resolve({ blob, thumb }) : reject(new Error("图片处理失败"))),
-          "image/jpeg",
-          0.85
-        );
+        const thumb = drawScaled(img, 240).toDataURL("image/jpeg", 0.6);  // 列表/弹窗用，很小
+        const full = drawScaled(img, 1280).toDataURL("image/jpeg", 0.7);  // 看大图用，中等清晰度
+        resolve({ thumb, full });
       };
       img.src = reader.result;
     };
@@ -541,8 +526,8 @@ async function showGalleryPhoto() {
   document.getElementById("lb-prev").style.display = showNav ? "" : "none";
   document.getElementById("lb-next").style.display = showNav ? "" : "none";
   // 先用缩略图占位，再换成高清；快速切换时只在仍停留此张才替换
-  img.src = ph.thumb || "";
-  if (ph.fileId) {
+  img.src = ph.full || ph.thumb || "";
+  if (!ph.full && ph.fileId) {
     try {
       const url = await fetchFullPhoto(ph.fileId);
       if (galleryPhotos[galleryIndex] === ph) img.src = url;
@@ -736,7 +721,7 @@ function openEditModal(id) {
   document.getElementById("f-date").value = p.date || new Date().toISOString().slice(0, 10);
   document.getElementById("f-cat").value = p.category || "other";
   // 已有照片以“existing”形式进入网格，可单独删除；也可继续添加新照片
-  pendingPhotos = getPhotos(p).map((ph) => ({ existing: true, fileId: ph.fileId, thumb: ph.thumb, name: ph.name }));
+  pendingPhotos = getPhotos(p).map((ph) => ({ existing: true, fileId: ph.fileId, thumb: ph.thumb, full: ph.full }));
   document.getElementById("f-photo").value = "";
   renderPhotoGrid();
   editLatLng = { lat: p.lat, lng: p.lng };
@@ -790,8 +775,8 @@ document.getElementById("f-photo").addEventListener("change", async (e) => {
   e.target.value = "";
   for (const file of files) {
     try {
-      const { blob, thumb } = await processPhoto(file);
-      pendingPhotos.push({ blob, thumb, name: file.name });
+      const { thumb, full } = await processPhoto(file);
+      pendingPhotos.push({ thumb, full });
     } catch (err) {
       console.warn(err);
       alert(`照片「${file.name}」读取失败：${err.message}`);
@@ -811,30 +796,11 @@ document.getElementById("place-form").addEventListener("submit", async (e) => {
   const notes = document.getElementById("f-notes").value.trim();
   const category = document.getElementById("f-cat").value;
 
-  // 只需上传“新加的”照片；已有照片沿用它原来的 fileId
-  const newOnes = pendingPhotos.filter((ph) => !ph.existing);
-  const uploadedNew = [];
-  if (newOnes.length) {
-    setStatus(`正在上传照片 0/${newOnes.length}…`);
-    try {
-      for (let i = 0; i < newOnes.length; i++) {
-        const fileId = await uploadPhotoBlob(newOnes[i].blob, newOnes[i].name);
-        uploadedNew.push({ fileId, thumb: newOnes[i].thumb, name: newOnes[i].name });
-        setStatus(`正在上传照片 ${i + 1}/${newOnes.length}…`);
-      }
-    } catch (err) {
-      console.error(err);
-      alert("上传照片失败：" + err.message);
-      uploadedNew.forEach((u) => deletePhotoFile(u.fileId));
-      updateAuthUI();
-      return;
-    }
-  }
-
-  // 按网格里的顺序拼出最终照片数组（已有的保留，新的用刚上传的结果）
-  let ni = 0;
+  // 照片直接内嵌（不再上传成单独文件）：已有的保留其字段，新的用内嵌的 thumb/full
   const finalPhotos = pendingPhotos.map((ph) =>
-    ph.existing ? { fileId: ph.fileId, thumb: ph.thumb, name: ph.name } : uploadedNew[ni++]
+    ph.existing
+      ? { fileId: ph.fileId, thumb: ph.thumb, full: ph.full }
+      : { thumb: ph.thumb, full: ph.full }
   );
 
   if (isEdit) {
@@ -850,7 +816,6 @@ document.getElementById("place-form").addEventListener("submit", async (e) => {
       await saveToDrive();
     } catch (err) {
       Object.assign(p, backup); // 回滚
-      uploadedNew.forEach((u) => deletePhotoFile(u.fileId));
       console.error(err);
       alert("保存失败：" + err.message);
       updateAuthUI();
@@ -879,7 +844,6 @@ document.getElementById("place-form").addEventListener("submit", async (e) => {
       await saveToDrive();
     } catch (err) {
       places.pop();
-      uploadedNew.forEach((u) => deletePhotoFile(u.fileId));
       console.error(err);
       alert("保存到 Google Drive 失败：" + err.message);
       updateAuthUI();
