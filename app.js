@@ -216,7 +216,7 @@ async function findDataFile() {
 }
 
 async function readDataFile(fileId) {
-  const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`);
+  const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`);
   const data = await res.json().catch(() => []);
   places = Array.isArray(data) ? data : [];
 }
@@ -268,7 +268,7 @@ async function saveToDrive() {
       dataFileId = (await res.json()).id;
     }
   }
-  await driveFetch(`https://www.googleapis.com/upload/drive/v3/files/${dataFileId}?uploadType=media`, {
+  await driveFetch(`https://www.googleapis.com/upload/drive/v3/files/${dataFileId}?uploadType=media&supportsAllDrives=true`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body,
@@ -324,6 +324,9 @@ function connectToFamilyMap() {
     const picker = new google.picker.PickerBuilder()
       .setOAuthToken(accessToken)
       .setDeveloperKey(GOOGLE_API_KEY)
+      // 关键：把令牌与本应用关联（App ID = 项目编号 = Client ID 开头那串数字）。
+      // 否则 drive.file 选中文件后后端读不到、报 404。
+      .setAppId(GOOGLE_CLIENT_ID.split("-")[0])
       .setTitle("进入共享的「家庭旅行足迹地图」文件夹，选中里面的 footprints.json")
       .addView(view)
       .setCallback(pickerCallback)
