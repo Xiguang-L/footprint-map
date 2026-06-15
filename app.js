@@ -159,6 +159,7 @@ const APP_FOLDER_NAME = "家庭旅行足迹地图";
 const DATA_FILE_NAME = "footprints.json";
 let folderId = null;
 let dataFileId = null;
+let myFolderId = null; // “我自己”的文件夹（存照片用，与是否连接共享地图无关）
 
 async function driveFetch(url, options = {}) {
   if (!accessToken) throw new Error("未登录");
@@ -273,6 +274,52 @@ async function saveToDrive() {
     headers: { "Content-Type": "application/json" },
     body,
   });
+}
+
+// 找/建“我自己”的文件夹（存照片用）。无论是否连接共享地图，照片都存到自己 Drive。
+async function ensurePhotoFolder() {
+  if (myFolderId) return myFolderId;
+  const q = `name='${APP_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+  const res = await driveFetch(
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&spaces=drive&fields=files(id,name)`
+  );
+  const data = await res.json();
+  if (data.files && data.files.length) { myFolderId = data.files[0].id; return myFolderId; }
+  const res2 = await driveFetch("https://www.googleapis.com/drive/v3/files", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: APP_FOLDER_NAME, mimeType: "application/vnd.google-apps.folder" }),
+  });
+  myFolderId = (await res2.json()).id;
+  return myFolderId;
+}
+
+// 上传一张高清图到“我自己”的 Drive，并设为“链接可见”，返回 fileId
+async function uploadPhoto(blob) {
+  const fid = await ensurePhotoFolder();
+  const res = await driveFetch("https://www.googleapis.com/drive/v3/files?supportsAllDrives=true", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "photo-" + makeId() + ".jpg", parents: [fid], mimeType: "image/jpeg" }),
+  });
+  const id = (await res.json()).id;
+  await driveFetch(`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media&supportsAllDrives=true`, {
+    method: "PATCH",
+    headers: { "Content-Type": "image/jpeg" },
+    body: blob,
+  });
+  // 设为“任何知道链接的人可查看”，这样家人/分享页都能加载
+  await driveFetch(`https://www.googleapis.com/drive/v3/files/${id}/permissions?supportsAllDrives=true`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role: "reader", type: "anyone" }),
+  });
+  return id;
+}
+
+// 公开 Drive 图片的可直接用于 <img> 的地址
+function publicPhotoUrl(fileId, w) {
+  return `https://lh3.googleusercontent.com/d/${fileId}=w${w || 2560}`;
 }
 
 // 删除一个 Drive 文件（best-effort，失败忽略）
@@ -499,9 +546,12 @@ function processPhoto(file) {
       const img = new Image();
       img.onerror = () => reject(new Error("无法解码（可能是 HEIC 等浏览器不支持的格式）"));
       img.onload = () => {
-        const thumb = drawScaled(img, 240).toDataURL("image/jpeg", 0.6);  // 列表/弹窗用，很小
-        const full = drawScaled(img, 1280).toDataURL("image/jpeg", 0.7);  // 看大图用，中等清晰度
-        resolve({ thumb, full });
+        const thumb = drawScaled(img, 240).toDataURL("image/jpeg", 0.6);  // 内嵌缩略图，列表/弹窗用
+        drawScaled(img, 2560).toBlob(                                      // 高清版，上传到 Drive
+          (blob) => (blob ? resolve({ thumb, blob }) : reject(new Error("图片处理失败"))),
+          "image/jpeg",
+          0.85
+        );
       };
       img.src = reader.result;
     };
@@ -530,15 +580,26 @@ async function showGalleryPhoto() {
   document.getElementById("lb-prev").style.display = showNav ? "" : "none";
   document.getElementById("lb-next").style.display = showNav ? "" : "none";
   // 先用缩略图占位，再换成高清；快速切换时只在仍停留此张才替换
-  img.src = ph.full || ph.thumb || "";
-  if (!ph.full && ph.fileId) {
+  img.src = ph.thumb || ""; // 先占位
+  const direct = photoFullSrc(ph);
+  if (direct) { img.src = direct; return; }
+  if (ph.fileId) {
+    // 旧的私有文件：鉴权获取（仅本人 Drive 有效；家人会回退到缩略图）
     try {
       const url = await fetchFullPhoto(ph.fileId);
       if (galleryPhotos[galleryIndex] === ph) img.src = url;
     } catch (e) {
-      console.warn("载入原图失败，先用缩略图显示", e);
+      console.warn("载入原图失败，用缩略图显示", e);
     }
   }
+}
+
+// 大图的直接地址：公开链接 / 内嵌大图 / 公开 Drive 图
+function photoFullSrc(ph) {
+  if (ph.url) return ph.url;
+  if (ph.full) return ph.full;
+  if (ph.pub && ph.fileId) return publicPhotoUrl(ph.fileId, 2560);
+  return null;
 }
 
 function galleryStep(n) {
@@ -725,7 +786,7 @@ function openEditModal(id) {
   document.getElementById("f-date").value = p.date || new Date().toISOString().slice(0, 10);
   document.getElementById("f-cat").value = p.category || "other";
   // 已有照片以“existing”形式进入网格，可单独删除；也可继续添加新照片
-  pendingPhotos = getPhotos(p).map((ph) => ({ existing: true, fileId: ph.fileId, thumb: ph.thumb, full: ph.full }));
+  pendingPhotos = getPhotos(p).map((ph) => ({ existing: true, thumb: ph.thumb, fileId: ph.fileId, pub: ph.pub, url: ph.url, full: ph.full }));
   document.getElementById("f-photo").value = "";
   renderPhotoGrid();
   editLatLng = { lat: p.lat, lng: p.lng };
@@ -779,8 +840,8 @@ document.getElementById("f-photo").addEventListener("change", async (e) => {
   e.target.value = "";
   for (const file of files) {
     try {
-      const { thumb, full } = await processPhoto(file);
-      pendingPhotos.push({ thumb, full });
+      const { thumb, blob } = await processPhoto(file);
+      pendingPhotos.push({ thumb, blob });
     } catch (err) {
       console.warn(err);
       alert(`照片「${file.name}」读取失败：${err.message}`);
@@ -800,11 +861,30 @@ document.getElementById("place-form").addEventListener("submit", async (e) => {
   const notes = document.getElementById("f-notes").value.trim();
   const category = document.getElementById("f-cat").value;
 
-  // 照片直接内嵌（不再上传成单独文件）：已有的保留其字段，新的用内嵌的 thumb/full
+  // 上传“新加的”高清图到自己 Drive（设为链接可见）；已有照片保留其字段
+  const newOnes = pendingPhotos.filter((ph) => !ph.existing);
+  const uploaded = [];
+  if (newOnes.length) {
+    setStatus(`正在上传照片 0/${newOnes.length}…`);
+    try {
+      for (let i = 0; i < newOnes.length; i++) {
+        const fileId = await uploadPhoto(newOnes[i].blob);
+        uploaded.push({ thumb: newOnes[i].thumb, fileId, pub: true });
+        setStatus(`正在上传照片 ${i + 1}/${newOnes.length}…`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("上传照片失败：" + err.message);
+      uploaded.forEach((u) => deletePhotoFile(u.fileId));
+      updateAuthUI();
+      return;
+    }
+  }
+  let ni = 0;
   const finalPhotos = pendingPhotos.map((ph) =>
     ph.existing
-      ? { fileId: ph.fileId, thumb: ph.thumb, full: ph.full }
-      : { thumb: ph.thumb, full: ph.full }
+      ? { thumb: ph.thumb, fileId: ph.fileId, pub: ph.pub, url: ph.url, full: ph.full }
+      : uploaded[ni++]
   );
 
   if (isEdit) {
@@ -820,6 +900,7 @@ document.getElementById("place-form").addEventListener("submit", async (e) => {
       await saveToDrive();
     } catch (err) {
       Object.assign(p, backup); // 回滚
+      uploaded.forEach((u) => deletePhotoFile(u.fileId));
       console.error(err);
       alert("保存失败：" + err.message);
       updateAuthUI();
@@ -848,6 +929,7 @@ document.getElementById("place-form").addEventListener("submit", async (e) => {
       await saveToDrive();
     } catch (err) {
       places.pop();
+      uploaded.forEach((u) => deletePhotoFile(u.fileId));
       console.error(err);
       alert("保存到 Google Drive 失败：" + err.message);
       updateAuthUI();
