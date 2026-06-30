@@ -425,6 +425,7 @@ const CATEGORIES = [
   { key: "stay",  label: "住宿", emoji: "🏨" },
   { key: "work",  label: "出差", emoji: "💼" },
   { key: "wish",  label: "想去", emoji: "⭐" },
+  { key: "fishing", label: "小猫钓鱼", emoji: "🐱" },
   { key: "other", label: "其他", emoji: "📍" },
 ];
 const CAT_BY_KEY = Object.fromEntries(CATEGORIES.map((c) => [c.key, c]));
