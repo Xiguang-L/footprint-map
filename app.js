@@ -472,10 +472,97 @@ function requireSignIn() {
   return true;
 }
 
+// ---------- 高德搜索（国内准）+ OSM 兜底（国外）----------
+// 火星坐标(GCJ-02) -> 国际坐标(WGS-84)；只对中国境内的点纠偏，国外原样返回
+function gcj02ToWgs84(lng, lat) {
+  const PI = Math.PI, a = 6378245.0, ee = 0.00669342162296594323;
+  if (!(lng > 73.66 && lng < 135.05 && lat > 3.86 && lat < 53.55)) return [lng, lat]; // 国外不偏移
+  const tLat = -100 + 2 * (lng - 105) + 3 * (lat - 35) + 0.2 * (lat - 35) * (lat - 35) +
+    0.1 * (lng - 105) * (lat - 35) + 0.2 * Math.sqrt(Math.abs(lng - 105)) +
+    (20 * Math.sin(6 * (lng - 105) * PI) + 20 * Math.sin(2 * (lng - 105) * PI)) * 2 / 3 +
+    (20 * Math.sin((lat - 35) * PI) + 40 * Math.sin((lat - 35) / 3 * PI)) * 2 / 3 +
+    (160 * Math.sin((lat - 35) / 12 * PI) + 320 * Math.sin((lat - 35) * PI / 30)) * 2 / 3;
+  const tLng = 300 + (lng - 105) + 2 * (lat - 35) + 0.1 * (lng - 105) * (lng - 105) +
+    0.1 * (lng - 105) * (lat - 35) + 0.1 * Math.sqrt(Math.abs(lng - 105)) +
+    (20 * Math.sin(6 * (lng - 105) * PI) + 20 * Math.sin(2 * (lng - 105) * PI)) * 2 / 3 +
+    (20 * Math.sin((lng - 105) * PI) + 40 * Math.sin((lng - 105) / 3 * PI)) * 2 / 3 +
+    (150 * Math.sin((lng - 105) / 12 * PI) + 300 * Math.sin((lng - 105) / 30 * PI)) * 2 / 3;
+  const radLat = (lat / 180) * PI;
+  let magic = Math.sin(radLat);
+  magic = 1 - ee * magic * magic;
+  const sqrtMagic = Math.sqrt(magic);
+  const dLat = (tLat * 180) / (((a * (1 - ee)) / (magic * sqrtMagic)) * PI);
+  const dLng = (tLng * 180) / ((a / sqrtMagic) * Math.cos(radLat) * PI);
+  return [lng * 2 - (lng + dLng), lat * 2 - (lat + dLat)];
+}
+
+// 动态加载高德 JS API
+function loadAMap() {
+  if (typeof AMAP_KEY === "undefined" || !AMAP_KEY) return;
+  if (typeof AMAP_SECURITY !== "undefined" && AMAP_SECURITY) {
+    window._AMapSecurityConfig = { securityJsCode: AMAP_SECURITY };
+  }
+  const s = document.createElement("script");
+  s.src = `https://webapi.amap.com/maps?v=2.0&key=${AMAP_KEY}&plugin=AMap.PlaceSearch`;
+  s.async = true;
+  document.head.appendChild(s);
+}
+loadAMap();
+
+// 用高德 POI 搜索（结果转成 WGS-84）
+function amapSearch(query) {
+  return new Promise((resolve) => {
+    if (!window.AMap || !AMap.PlaceSearch) { resolve([]); return; }
+    try {
+      const ps = new AMap.PlaceSearch({ pageSize: 8 });
+      ps.search(query, (status, result) => {
+        if (status !== "complete" || !result.poiList || !result.poiList.pois) { resolve([]); return; }
+        resolve(
+          result.poiList.pois.map((poi) => {
+            const loc = poi.location || {};
+            const lng = loc.lng != null ? loc.lng : (loc.getLng ? loc.getLng() : 0);
+            const lat = loc.lat != null ? loc.lat : (loc.getLat ? loc.getLat() : 0);
+            const [wlng, wlat] = gcj02ToWgs84(lng, lat);
+            const ll = L.latLng(wlat, wlng);
+            const addr = typeof poi.address === "string" ? poi.address : "";
+            return { name: poi.name + (addr ? " · " + addr : ""), center: ll, bbox: L.latLngBounds(ll, ll) };
+          })
+        );
+      });
+    } catch (e) { console.warn("高德搜索出错", e); resolve([]); }
+  });
+}
+
+// 用 OpenStreetMap 搜索（国外兜底）
+function osmSearch(query) {
+  return fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query)}&accept-language=zh&limit=5`)
+    .then((r) => r.json())
+    .then((arr) =>
+      (arr || []).map((it) => {
+        const ll = L.latLng(parseFloat(it.lat), parseFloat(it.lon));
+        const bb = it.boundingbox;
+        return {
+          name: it.display_name,
+          center: ll,
+          bbox: bb ? L.latLngBounds(L.latLng(+bb[0], +bb[2]), L.latLng(+bb[1], +bb[3])) : L.latLngBounds(ll, ll),
+        };
+      })
+    )
+    .catch(() => []);
+}
+
+// 合并：高德结果在前（国内优先），OSM 在后（国外兜底）
+const combinedGeocoder = {
+  geocode: function (query, cb) {
+    Promise.all([amapSearch(query), osmSearch(query)]).then(([a, o]) => cb(a.concat(o)));
+  },
+};
+
 const geocoder = L.Control.geocoder({
   defaultMarkGeocode: false,
   collapsed: false,
-  placeholder: "搜索城市 / 地点名…",
+  geocoder: combinedGeocoder,
+  placeholder: "搜索地点（国内更准）…",
   errorMessage: "没找到这个地点，换个说法试试",
 })
   .on("markgeocode", (e) => {
