@@ -7,10 +7,11 @@
   <!-- 内容安全策略：只允许从这些可信来源加载资源（Google 登录/Picker、地图瓦片、本站） -->
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self';
-    script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://apis.google.com https://accounts.google.com https://*.gstatic.com https://*.googleapis.com https://webapi.amap.com https://*.amap.com;
+    script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://unpkg.com https://apis.google.com https://accounts.google.com https://*.gstatic.com https://*.googleapis.com https://webapi.amap.com https://*.amap.com https://cdn.jsdelivr.net;
     style-src 'self' 'unsafe-inline' https://unpkg.com;
     img-src 'self' data: blob: https://*.googleusercontent.com https://*.google.com https://*.gstatic.com https://*.tile.openstreetmap.org https://*.tile.opentopomap.org https://server.arcgisonline.com https://*.amap.com https://*.autonavi.com;
-    connect-src 'self' https://*.googleapis.com https://accounts.google.com https://nominatim.openstreetmap.org https://*.google.com https://*.amap.com https://restapi.amap.com;
+    connect-src 'self' blob: data: https://*.googleapis.com https://accounts.google.com https://nominatim.openstreetmap.org https://*.google.com https://*.amap.com https://restapi.amap.com https://cdn.jsdelivr.net;
+    worker-src 'self' blob:;
     frame-src https://accounts.google.com https://content.googleapis.com https://docs.google.com https://*.google.com;
     font-src 'self' data:;
     base-uri 'self';

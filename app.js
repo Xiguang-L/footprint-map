@@ -923,18 +923,52 @@ function closeModal() {
 }
 
 // 选照片（可多张、可分多次选）
+// —— HEIC 支持：浏览器不能直接解码 HEIC，先用 heic2any 转成 JPEG（按需加载）——
+let heic2anyLoading = null;
+function ensureHeic2any() {
+  if (window.heic2any) return Promise.resolve();
+  if (heic2anyLoading) return heic2anyLoading;
+  heic2anyLoading = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js";
+    s.integrity = "sha384-OTofQ0MEeiSgh62havBcemCIK0gqj809wX6UA0uPISNMRnR6NZyCdGzX3SbLrgwL";
+    s.crossOrigin = "anonymous";
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error("加载 HEIC 解码库失败"));
+    document.head.appendChild(s);
+  });
+  return heic2anyLoading;
+}
+
+function isHeic(file) {
+  const t = (file.type || "").toLowerCase();
+  const n = (file.name || "").toLowerCase();
+  return t.indexOf("heic") >= 0 || t.indexOf("heif") >= 0 || n.endsWith(".heic") || n.endsWith(".heif");
+}
+
+// HEIC -> JPEG blob；非 HEIC 原样返回
+async function toDecodableImage(file) {
+  if (!isHeic(file)) return file;
+  await ensureHeic2any();
+  const out = await window.heic2any({ blob: file, toType: "image/jpeg", quality: 0.92 });
+  return Array.isArray(out) ? out[0] : out;
+}
+
 document.getElementById("f-photo").addEventListener("change", async (e) => {
   const files = Array.from(e.target.files || []);
   e.target.value = "";
   for (const file of files) {
     try {
-      const { thumb, blob } = await processPhoto(file);
+      if (isHeic(file)) setStatus(`正在转换 HEIC 照片「${file.name}」…`);
+      const usable = await toDecodableImage(file);
+      const { thumb, blob } = await processPhoto(usable);
       pendingPhotos.push({ thumb, blob });
     } catch (err) {
       console.warn(err);
       alert(`照片「${file.name}」读取失败：${err.message}`);
     }
   }
+  setStatus(signedIn ? "已登录 · 数据存在你的 Google Drive" : "未登录");
   renderPhotoGrid();
 });
 
