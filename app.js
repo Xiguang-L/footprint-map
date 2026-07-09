@@ -551,10 +551,48 @@ function osmSearch(query) {
     .catch(() => []);
 }
 
-// 合并：高德结果在前（国内优先），OSM 在后（国外兜底）
+// 动态加载 Google 地图 JS 库（国外搜索用它的 Geocoder，浏览器里不受跨域限制）
+function loadGoogleMaps() {
+  if (typeof GOOGLE_MAPS_KEY === "undefined" || !GOOGLE_MAPS_KEY) return;
+  window.__gmapsReady = function () {}; // 加载完成回调
+  const s = document.createElement("script");
+  s.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_KEY}&callback=__gmapsReady&loading=async`;
+  s.async = true;
+  document.head.appendChild(s);
+}
+loadGoogleMaps();
+
+// 用 Google Geocoder 搜索（国外强）；中国境内结果同样做火星坐标纠偏
+function googleSearch(query) {
+  return new Promise((resolve) => {
+    if (!window.google || !google.maps || !google.maps.Geocoder) { resolve([]); return; }
+    try {
+      const gc = new google.maps.Geocoder();
+      gc.geocode({ address: query }, (results, status) => {
+        if (status !== "OK" || !results) { resolve([]); return; }
+        resolve(
+          results.slice(0, 6).map((r) => {
+            const loc = r.geometry.location;
+            const [wlng, wlat] = gcj02ToWgs84(loc.lng(), loc.lat()); // 只对中国境内纠偏，国外不动
+            const ll = L.latLng(wlat, wlng);
+            return { name: r.formatted_address, center: ll, bbox: L.latLngBounds(ll, ll) };
+          })
+        );
+      });
+    } catch (e) { console.warn("Google 搜索出错", e); resolve([]); }
+  });
+}
+
+// 判断是否含中文（决定高德还是 Google 排前面）
+function hasCJK(s) { return /[㐀-鿿]/.test(s || ""); }
+
+// 合并三家：中文输入→高德优先；英文输入→Google 优先；OSM 永远兜底
 const combinedGeocoder = {
   geocode: function (query, cb) {
-    Promise.all([amapSearch(query), osmSearch(query)]).then(([a, o]) => cb(a.concat(o)));
+    Promise.all([amapSearch(query), googleSearch(query), osmSearch(query)]).then(([a, g, o]) => {
+      const primary = hasCJK(query) ? a.concat(g) : g.concat(a);
+      cb(primary.concat(o));
+    });
   },
 };
 

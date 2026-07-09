@@ -11,3 +11,6 @@ const GOOGLE_API_KEY = "AIzaSyB5OPl8m21KOHsFn13y3_-gfjgcMTbTatA";
 // 高德地图 Web端(JS API) 的 Key + 安全密钥（用域名白名单限制；用于国内地点搜索）
 const AMAP_KEY = "ae79150330ecb66d9381509cd345e020";
 const AMAP_SECURITY = "054706b5f6ce58f5dfce59812a9898a2";
+
+// Google Maps JS API 的 Key（网站+接口限制；用于国外地点搜索）
+const GOOGLE_MAPS_KEY = "AIzaSyAnkkWIn9i1mWCc_zOyMMzBduCKrqcVNEE";
