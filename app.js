@@ -992,9 +992,10 @@ async function toDecodableImage(file) {
   return Array.isArray(out) ? out[0] : out;
 }
 
-document.getElementById("f-photo").addEventListener("change", async (e) => {
-  const files = Array.from(e.target.files || []);
-  e.target.value = "";
+// 处理一批图片文件（“选择文件”和“拖拽”共用）
+async function addPhotoFiles(fileList) {
+  const files = Array.from(fileList || []).filter((f) => f && (f.type.indexOf("image/") === 0 || isHeic(f)));
+  if (!files.length) return;
   for (const file of files) {
     try {
       if (isHeic(file)) setStatus(`正在转换 HEIC 照片「${file.name}」…`);
@@ -1008,7 +1009,27 @@ document.getElementById("f-photo").addEventListener("change", async (e) => {
   }
   setStatus(signedIn ? "已登录 · 数据存在你的 Google Drive" : "未登录");
   renderPhotoGrid();
+}
+
+document.getElementById("f-photo").addEventListener("change", (e) => {
+  addPhotoFiles(e.target.files);
+  e.target.value = "";
 });
+
+// 拖拽添加图片
+const dropZone = document.getElementById("f-drop");
+["dragenter", "dragover"].forEach((ev) =>
+  dropZone.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); dropZone.classList.add("dragover"); })
+);
+["dragleave", "drop"].forEach((ev) =>
+  dropZone.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); dropZone.classList.remove("dragover"); })
+);
+dropZone.addEventListener("drop", (e) => {
+  if (e.dataTransfer && e.dataTransfer.files) addPhotoFiles(e.dataTransfer.files);
+});
+// 防止把图片拖到页面别处时浏览器直接打开它
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => e.preventDefault());
 
 document.getElementById("place-form").addEventListener("submit", async (e) => {
   e.preventDefault();

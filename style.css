@@ -149,6 +149,23 @@ body {
   background: #fff;
 }
 #place-form input:focus, #place-form textarea:focus, #place-form select:focus { outline: 2px solid var(--accent); border-color: transparent; }
+/* 拖放上传区 */
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: 10px;
+  padding: 14px 12px;
+  margin: 8px 0 10px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 13px;
+  transition: border-color .12s, background .12s, color .12s;
+}
+.drop-zone.dragover {
+  border-color: var(--accent);
+  background: #f0fdfa;
+  color: var(--accent-dark);
+}
+
 /* 表单里的多图预览网格 */
 .photo-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .photo-grid .ph { position: relative; width: 72px; height: 72px; }
