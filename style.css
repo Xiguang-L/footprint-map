@@ -137,6 +137,8 @@ body {
   width: 100%; max-width: 420px;
   padding: 20px 22px;
   box-shadow: 0 20px 50px rgba(0,0,0,.25);
+  max-height: 90vh;      /* 内容超高时限制在屏幕内 */
+  overflow-y: auto;      /* 可上下滚动 */
 }
 .modal h3 { margin: 0 0 14px; }
 #place-form label { display: block; font-size: 13px; color: #334155; margin-bottom: 12px; }
@@ -184,7 +186,13 @@ body {
 .lb-next { right: 14px; top: 50%; transform: translateY(-50%); }
 
 .coords { color: #94a3b8; font-size: 12px; margin: 0 0 14px; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.modal-actions {
+  display: flex; justify-content: flex-end; gap: 10px;
+  position: sticky; bottom: 0;        /* 吸底：保存/取消始终可见 */
+  background: #fff;
+  padding: 12px 0 2px;
+  border-top: 1px solid var(--border);
+}
 .modal-actions .btn.ghost { background: #f1f5f9; color: #334155; }
 .modal-actions .btn.ghost:hover { background: #e2e8f0; }
 
