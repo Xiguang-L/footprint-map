@@ -9,8 +9,8 @@
     default-src 'self';
     script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://unpkg.com https://apis.google.com https://accounts.google.com https://*.gstatic.com https://*.googleapis.com https://webapi.amap.com https://*.amap.com https://cdn.jsdelivr.net;
     style-src 'self' 'unsafe-inline' https://unpkg.com;
-    img-src 'self' data: blob: https://*.googleusercontent.com https://*.google.com https://*.gstatic.com https://*.tile.openstreetmap.org https://*.tile.opentopomap.org https://server.arcgisonline.com https://*.amap.com https://*.autonavi.com;
-    connect-src 'self' blob: data: https://*.googleapis.com https://accounts.google.com https://nominatim.openstreetmap.org https://*.google.com https://*.amap.com https://restapi.amap.com https://cdn.jsdelivr.net;
+    img-src 'self' data: blob: https://unpkg.com https://*.googleusercontent.com https://*.google.com https://*.gstatic.com https://*.tile.openstreetmap.org https://*.tile.opentopomap.org https://server.arcgisonline.com https://*.amap.com https://*.autonavi.com;
+    connect-src 'self' blob: data: https://unpkg.com https://*.googleapis.com https://accounts.google.com https://nominatim.openstreetmap.org https://*.google.com https://*.amap.com https://restapi.amap.com https://cdn.jsdelivr.net;
     worker-src 'self' blob:;
     frame-src https://accounts.google.com https://content.googleapis.com https://docs.google.com https://*.google.com;
     font-src 'self' data:;
@@ -23,6 +23,7 @@
   <!-- PWA：加到手机主屏像 App 一样打开 -->
   <link rel="manifest" href="manifest.json" />
   <meta name="theme-color" content="#0d9488" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="旅行足迹" />
