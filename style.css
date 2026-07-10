@@ -257,20 +257,24 @@ body {
 .tl-entry img { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; }
 .tl-entry .tl-title { font-weight: 600; }
 
-/* ===== 搜索结果下拉：可滚动 + 长地址换行（手机上结果多/名字长也能看全） ===== */
-.leaflet-control-geocoder-alternatives {
-  max-height: 55vh;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+/* ===== 搜索框 + 结果下拉：宽度可控、限高可滚、长地址换行、滚动不牵动地图 ===== */
+.leaflet-control-geocoder {
+  width: min(320px, 82vw);
   max-width: 82vw;
 }
-.leaflet-control-geocoder-alternatives li,
-.leaflet-control-geocoder-alternatives li a {
-  white-space: normal;
+.leaflet-control-geocoder-form input { width: 100%; box-sizing: border-box; }
+.leaflet-control-geocoder-alternatives {
+  width: 100%;
+  margin: 0;
+  max-height: min(48vh, 320px);
+  overflow-y: auto;
+  overscroll-behavior: contain;      /* 滚到头不把地图/页面带着滚 */
+  -webkit-overflow-scrolling: touch;
 }
 .leaflet-control-geocoder-alternatives li a {
+  white-space: normal;               /* 长地址换行完整显示 */
   line-height: 1.35;
-  padding: 7px 10px;
+  padding: 8px 10px;
 }
 
 /* ===== 手机适配 ===== */

@@ -617,6 +617,17 @@ const geocoder = L.Control.geocoder({
   })
   .addTo(map);
 
+// 让搜索结果列表能顺畅滚动，而不牵动地图（尤其手机上）
+(function () {
+  const el = geocoder.getContainer && geocoder.getContainer();
+  if (el) {
+    L.DomEvent.disableScrollPropagation(el);
+    L.DomEvent.disableClickPropagation(el);
+    L.DomEvent.on(el, "touchmove", L.DomEvent.stopPropagation);
+    L.DomEvent.on(el, "wheel", L.DomEvent.stopPropagation);
+  }
+})();
+
 map.on("click", (e) => {
   if (repositioning) { if (repositionMarker) repositionMarker.setLatLng(e.latlng); return; }
   if (!requireSignIn()) return;
