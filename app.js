@@ -586,12 +586,13 @@ function googleSearch(query) {
 // 判断是否含中文（决定高德还是 Google 排前面）
 function hasCJK(s) { return /[㐀-鿿]/.test(s || ""); }
 
-// 合并三家：中文输入→高德优先；英文输入→Google 优先；OSM 永远兜底
+// 中文输入：高德 + Google + OSM（高德在前）；
+// 英文/字母输入：不走高德（它会返回无关的国内地点），只查 Google + OSM
 const combinedGeocoder = {
   geocode: function (query, cb) {
-    Promise.all([amapSearch(query), googleSearch(query), osmSearch(query)]).then(([a, g, o]) => {
-      const primary = hasCJK(query) ? a.concat(g) : g.concat(a);
-      cb(primary.concat(o));
+    const cjk = hasCJK(query);
+    Promise.all([cjk ? amapSearch(query) : Promise.resolve([]), googleSearch(query), osmSearch(query)]).then(([a, g, o]) => {
+      cb((cjk ? a.concat(g) : g).concat(o));
     });
   },
 };
