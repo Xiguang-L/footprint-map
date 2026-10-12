@@ -625,6 +625,20 @@ const geocoder = L.Control.geocoder({
     L.DomEvent.disableClickPropagation(el);
     L.DomEvent.on(el, "touchmove", L.DomEvent.stopPropagation);
     L.DomEvent.on(el, "wheel", L.DomEvent.stopPropagation);
+
+    // 手机：插件原本在 touchstart（手指刚碰到）就选中条目，还会取消原生滚动、
+    // 并让整个搜索框重新搜索一次。这里在“捕获阶段”拦下列表里的 touchstart：
+    // 不传给插件、也不 preventDefault —— 滑动就是滚动；真正点一下时，
+    // 浏览器会补发 mousedown，插件照常选中。
+    el.addEventListener(
+      "touchstart",
+      (e) => {
+        if (e.target.closest && e.target.closest(".leaflet-control-geocoder-alternatives")) {
+          e.stopPropagation();
+        }
+      },
+      { capture: true, passive: true }
+    );
   }
 })();
 

@@ -270,11 +270,17 @@ body {
   overflow-y: auto;
   overscroll-behavior: contain;      /* 滚到头不把地图/页面带着滚 */
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;               /* 手指在列表上只做上下滑动 */
 }
+.leaflet-control-geocoder-alternatives li {
+  cursor: pointer;
+  border-bottom: 1px solid #f1f5f9;  /* 条目之间有分隔，减少点错 */
+}
+.leaflet-control-geocoder-alternatives li:last-child { border-bottom: none; }
 .leaflet-control-geocoder-alternatives li a {
   white-space: normal;               /* 长地址换行完整显示 */
   line-height: 1.35;
-  padding: 8px 10px;
+  padding: 10px 12px;                /* 更大的点击区域 */
 }
 
 /* ===== 手机适配 ===== */
