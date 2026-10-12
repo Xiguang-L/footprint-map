@@ -534,8 +534,10 @@ function amapSearch(query) {
 }
 
 // 用 OpenStreetMap 搜索（国外兜底）
-function osmSearch(query) {
-  return fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query)}&accept-language=zh&limit=5`)
+function osmSearch(query, bias) {
+  let url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query)}&accept-language=zh&limit=5`;
+  if (bias) url += `&viewbox=${bias.west},${bias.north},${bias.east},${bias.south}&bounded=0`; // 优先该区域，但不限制
+  return fetch(url)
     .then((r) => r.json())
     .then((arr) =>
       (arr || []).map((it) => {
@@ -563,12 +565,20 @@ function loadGoogleMaps() {
 loadGoogleMaps();
 
 // 用 Google Geocoder 搜索（国外强）；中国境内结果同样做火星坐标纠偏
-function googleSearch(query) {
+function googleSearch(query, bias) {
   return new Promise((resolve) => {
     if (!window.google || !google.maps || !google.maps.Geocoder) { resolve([]); return; }
     try {
       const gc = new google.maps.Geocoder();
-      gc.geocode({ address: query }, (results, status) => {
+      const req = { address: query };
+      if (bias) {
+        // 优先该区域（只是偏向、不是限制：区域外更匹配的结果照样会出现）
+        req.bounds = new google.maps.LatLngBounds(
+          { lat: bias.south, lng: bias.west },
+          { lat: bias.north, lng: bias.east }
+        );
+      }
+      gc.geocode(req, (results, status) => {
         if (status !== "OK" || !results) { resolve([]); return; }
         resolve(
           results.slice(0, 6).map((r) => {
@@ -586,14 +596,62 @@ function googleSearch(query) {
 // 判断是否含中文（决定高德还是 Google 排前面）
 function hasCJK(s) { return /[㐀-鿿]/.test(s || ""); }
 
+// ---------- 附近优先：地图放大时按当前显示的区域，缩小时按你的位置 ----------
+const BIAS_VIEW_MIN_ZOOM = 8; // 放大到这一级及以上，按地图当前显示的区域
+let userLoc = null;           // 你的位置：拿到一次后，这次打开期间一直复用
+let userLocDenied = false;    // 拒绝过位置权限就不再问
+
+function getUserLocation(timeoutMs) {
+  if (userLoc) return Promise.resolve(userLoc);
+  if (userLocDenied || !navigator.geolocation) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    setTimeout(() => finish(null), timeoutMs); // 权限弹窗迟迟没回答：这次先不偏向，拿到后下次用
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        userLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        finish(userLoc);
+      },
+      (err) => {
+        if (err && err.code === err.PERMISSION_DENIED) userLocDenied = true;
+        finish(null);
+      },
+      { enableHighAccuracy: false, timeout: timeoutMs, maximumAge: 10 * 60 * 1000 }
+    );
+  });
+}
+
+// 返回优先区域 {south, west, north, east}；拿不到就返回 null（不偏向任何地方）
+async function getSearchBias() {
+  try {
+    if (map.getZoom() >= BIAS_VIEW_MIN_ZOOM) {
+      const sw = map.getBounds().getSouthWest().wrap();
+      const ne = map.getBounds().getNorthEast().wrap();
+      return { south: sw.lat, west: sw.lng, north: ne.lat, east: ne.lng };
+    }
+    const loc = await getUserLocation(10000);
+    if (!loc) return null;
+    const dLat = 0.5; // 以你为中心，南北各约 55 公里
+    const dLng = 0.5 / Math.max(0.2, Math.cos((loc.lat * Math.PI) / 180));
+    return { south: loc.lat - dLat, west: loc.lng - dLng, north: loc.lat + dLat, east: loc.lng + dLng };
+  } catch (e) {
+    return null;
+  }
+}
+
 // 中文输入：高德 + Google + OSM（高德在前）；
-// 英文/字母输入：不走高德（它会返回无关的国内地点），只查 Google + OSM
+// 英文/字母输入：不走高德（它会返回无关的国内地点），只查 Google + OSM。
+// Google 和 OSM 都按上面的“附近优先”来排。
 const combinedGeocoder = {
   geocode: function (query, cb) {
+    if (!query || !query.trim()) { cb([]); return; } // 空输入不搜，也不弹位置权限
     const cjk = hasCJK(query);
-    Promise.all([cjk ? amapSearch(query) : Promise.resolve([]), googleSearch(query), osmSearch(query)]).then(([a, g, o]) => {
-      cb((cjk ? a.concat(g) : g).concat(o));
-    });
+    getSearchBias()
+      .then((bias) =>
+        Promise.all([cjk ? amapSearch(query) : Promise.resolve([]), googleSearch(query, bias), osmSearch(query, bias)])
+      )
+      .then(([a, g, o]) => cb((cjk ? a.concat(g) : g).concat(o)));
   },
 };
 
